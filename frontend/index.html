@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bot de Reclamos Vecinales</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 Bot de Reclamos Vecinales</h1>
+            <p>Reporta problemas en tu barrio de manera inteligente</p>
+        </header>
+        
+        <div class="chat-container">
+            <div id="chat-messages"></div>
+            
+            <div class="input-section">
+                <input type="text" id="user-input" placeholder="Describe el problema...">
+                <input type="file" id="image-input" accept="image/*">
+                <button onclick="sendMessage()">Enviar</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
