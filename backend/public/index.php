@@ -39,13 +39,78 @@ function getPdo(string $dbPath): PDO {
     return $pdo;
 }
 
-function categorize(string $text): string {
+function categorize(string $text) /*: ?string*/ {
     $t = mb_strtolower($text);
-    if (str_contains($t, 'bache')) return 'Bache';
-    if (str_contains($t, 'luz') || str_contains($t, 'alumbrado')) return 'Alumbrado público';
-    if (str_contains($t, 'basura')) return 'Basura acumulada';
-    if (str_contains($t, 'agua')) return 'Pérdida de agua';
-    return 'General';
+
+    // ✅ Válidos
+    $valid = [
+        'Baches, calles en mal estado' => [
+            'bache','pozo','calle rota','calle en mal estado','grieta','asfalto','hoyo','hundimiento'
+        ],
+        'Semáforos dañados' => [
+            'semáforo','semaforo','semaforos','semáforos','semáforo dañado','semáforo roto','semáforo sin luz'
+        ],
+        'Basura acumulada' => [
+            'basura','residuos','escombros','microbasural','bolsas de basura','contendedor lleno','contenedor lleno'
+        ],
+        'Problemas de alumbrado' => [
+            'alumbrado','farola','poste de luz','luz quemada','sin luz','luminaria','lámpara','lampara'
+        ],
+        'Alcantarillas destapadas' => [
+            'alcantarilla','cloaca','tapa de cloaca','desagüe','desague','rejilla','tormenta tapada'
+        ],
+        'Infraestructura deteriorada' => [
+            'vereda rota','vereda','cordón roto','cordon roto','banco roto','cartel caído','cartel caido','baranda rota','juego infantil roto','plaza deteriorada'
+        ],
+    ];
+
+    foreach ($valid as $category => $keywords) {
+        foreach ($keywords as $kw) {
+            if (str_contains($t, $kw)) {
+                return $category;
+            }
+        }
+    }
+
+    return null;
+}
+
+function isInvalidContent(string $text): bool {
+    $t = mb_strtolower($text);
+    $blocked = [
+        // ❌ Personas en situaciones privadas
+        'privado','intimo','íntimo','baño','dormitorio','habitacion','habitación','desnudo','rostro','persona identificable',
+        // ❌ Ofensivo/violento
+        'violencia','sangre','arma','amenaza','agresión','agresion','discriminación','discriminacion','insulto',
+        // ❌ Interiores privados
+        'interior de casa','casa por dentro','living','cocina','oficina privada','dentro de','domicilio',
+        // ❌ No municipal
+        'privado no municipal','empresa privada','propiedad privada','dentro de negocio','dentro de comercio',
+        // ❌ Memes o gráficas
+        'meme','humor gráfico','dibujo','caricatura',
+        // ❌ Documentos de texto
+        'pdf','documento','docx','word','texto escaneado'
+    ];
+    foreach ($blocked as $kw) {
+        if (str_contains($t, $kw)) return true;
+    }
+    return false;
+}
+
+function ensureImageUploadIsValid(array $file): void {
+    if (!is_uploaded_file($file['tmp_name'])) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Archivo inválido']);
+        exit;
+    }
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mime = $finfo->file($file['tmp_name']);
+    $allowed = ['image/jpeg','image/png','image/webp'];
+    if (!in_array($mime, $allowed, true)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Solo se aceptan imágenes JPG, PNG o WEBP']);
+        exit;
+    }
 }
 
 try {
@@ -71,19 +136,39 @@ try {
         }
 
         $texto = trim((string)($_POST['texto'] ?? ''));
-        if ($texto === '' && empty($_FILES['imagen']['name'])) {
+        $hasImage = !empty($_FILES['imagen']['name'] ?? '');
+
+        if ($texto === '' && !$hasImage) {
             http_response_code(400);
-            echo json_encode(['error' => 'Debe enviar texto o imagen']);
+            echo json_encode(['error' => 'Debe enviar una descripción y/o imagen']);
+            exit;
+        }
+
+        if ($hasImage) {
+            ensureImageUploadIsValid($_FILES['imagen']);
+        }
+
+        if ($texto === '') {
+            http_response_code(400);
+            echo json_encode(['error' => 'Agregue una descripción para validar el reclamo']);
+            exit;
+        }
+
+        if (isInvalidContent($texto)) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Contenido no válido según criterios (privado/ofensivo/no municipal/meme/documento).']);
+            exit;
+        }
+
+        $categoria = categorize($texto);
+        if ($categoria === null) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Situación no municipal o no reconocida. Describa un problema urbano válido.']);
             exit;
         }
 
         $savedFilename = null;
-        if (!empty($_FILES['imagen']['name'])) {
-            if (!is_uploaded_file($_FILES['imagen']['tmp_name'])) {
-                http_response_code(400);
-                echo json_encode(['error' => 'Archivo inválido']);
-                exit;
-            }
+        if ($hasImage) {
             $ext = pathinfo($_FILES['imagen']['name'], PATHINFO_EXTENSION);
             $basename = bin2hex(random_bytes(8));
             $filename = $basename . ($ext ? ('.' . strtolower($ext)) : '');
@@ -96,7 +181,6 @@ try {
             $savedFilename = $filename;
         }
 
-        $categoria = $texto ? categorize($texto) : 'General';
         $createdAt = (new DateTime('now', new DateTimeZone('UTC')))->format(DateTime::ATOM);
 
         $stmt = $pdo->prepare('INSERT INTO reclamos (texto, imagen, categoria, created_at) VALUES (:texto, :imagen, :categoria, :created_at)');
