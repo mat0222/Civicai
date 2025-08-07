@@ -3,57 +3,72 @@ const userInput = document.getElementById("user-input");
 const imageInput = document.getElementById("image-input");
 const chatMessages = document.getElementById("chat-messages");
 
-// Función principal
-function sendMessage() {
-    const text = userInput.value.trim();
-    const image = imageInput.files[0];
+const API_BASE = "http://localhost:8000";
 
-    // Validación
-    if (!text && !image) {
-        alert("Por favor escribí un mensaje o subí una imagen.");
-        return;
+async function sendMessage() {
+  const text = userInput.value.trim();
+  const image = imageInput.files[0];
+
+  if (!text && !image) {
+    alert("Por favor escribí un mensaje o subí una imagen.");
+    return;
+  }
+
+  if (text) appendMessage("Tú", text, "user");
+  if (image) appendMessage("Tú", `📷 Imagen subida: ${image.name}`, "user");
+
+  try {
+    const form = new FormData();
+    if (text) form.append("texto", text);
+    if (image) form.append("imagen", image);
+
+    const resp = await fetch(`${API_BASE}/api/reclamos`, {
+      method: "POST",
+      body: form,
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || "Error al enviar el reclamo");
     }
 
-    // Mostrar mensaje del usuario
-    if (text) {
-        appendMessage("Tú", text, "user");
-    }
+    const data = await resp.json();
+    const respuesta = data.categoria
+      ? `Entendido. Categoría: ${data.categoria}.`
+      : "Gracias por tu reclamo. Lo estamos procesando.";
+    appendMessage("Bot", respuesta, "bot");
+  } catch (e) {
+    appendMessage("Bot", `Error: ${e.message}`, "bot");
+  }
 
-    // Mostrar nombre de imagen si hay
-    if (image) {
-        appendMessage("Tú", `📷 Imagen subida: ${image.name}`, "user");
-    }
-
-    // Simular respuesta del bot
-    setTimeout(() => {
-        const respuesta = generarRespuesta(text);
-        appendMessage("Bot", respuesta, "bot");
-    }, 1000);
-
-    // Limpiar inputs
-    userInput.value = "";
-    imageInput.value = "";
+  userInput.value = "";
+  imageInput.value = "";
 }
 
-// Agrega mensaje al chat
 function appendMessage(sender, message, type) {
-    const msgDiv = document.createElement("div");
-    msgDiv.classList.add("message", type);
-    msgDiv.innerHTML = `<strong>${sender}:</strong> ${message}`;
-    chatMessages.appendChild(msgDiv);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+  const msgDiv = document.createElement("div");
+  msgDiv.classList.add("message", type);
+  msgDiv.innerHTML = `<strong>${sender}:</strong> ${message}`;
+  chatMessages.appendChild(msgDiv);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// Simulación de categorización simple (se reemplaza con IA después)
-function generarRespuesta(texto) {
-    if (!texto) return "Gracias por subir la imagen. Estamos analizando el problema.";
-
-    const lower = texto.toLowerCase();
-
-    if (lower.includes("bache")) return "Entendido. Categoría: Bache.";
-    if (lower.includes("luz") || lower.includes("alumbrado")) return "Entendido. Categoría: Alumbrado público.";
-    if (lower.includes("basura")) return "Entendido. Categoría: Basura acumulada.";
-    if (lower.includes("agua")) return "Entendido. Categoría: Pérdida de agua.";
-
-    return "Gracias por tu reclamo. Lo estamos procesando.";
+async function loadHistory() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/reclamos`);
+    if (!resp.ok) return;
+    const { data } = await resp.json();
+    (data || []).reverse().forEach((r) => {
+      if (r.texto) appendMessage("Tú", r.texto, "user");
+      if (r.imagen) appendMessage("Tú", `📷 Imagen: ${r.imagen}`, "user");
+      appendMessage("Bot", `Categoría registrada: ${r.categoria}`, "bot");
+    });
+  } catch (_) {}
 }
+
+window.addEventListener("DOMContentLoaded", () => {
+  loadHistory();
+  userInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendMessage();
+  });
+});
